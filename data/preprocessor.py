@@ -47,23 +47,13 @@ class StockAwareDataset(StockDataset):
 
 class StockPreprocessor:
     """
-    Stock data preprocessing with support for both legacy and stock-aware processing.
+    Preprocesses stock data into sequences for training.
 
-    This class provides two processing approaches that can be controlled via config.py:
+    Supports two processing modes:
+    - Global scaling: One scaler for all stocks
+    - Stock-aware: Individual scalers per stock and single stock batching (recommended)
 
-    1. LEGACY PROCESSING (use_stock_aware_processing = False):
-       - Uses global StandardScaler across all stocks
-       - Can cause artificial price/volume jumps between stocks in training batches
-       - Uses standard PyTorch DataLoader with random batching
-
-    2. STOCK-AWARE PROCESSING (use_stock_aware_processing = True) - RECOMMENDED:
-       - Uses individual StandardScaler for each stock
-       - Eliminates artificial scaling jumps between different stocks
-       - Ensures batches contain sequences from only one stock (prevents temporal discontinuity)
-       - Better training stability and performance
-
-    Configuration:
-        Set config.use_stock_aware_processing = True/False to control processing method
+    Mode controlled by config.use_stock_aware_processing
     """
 
     def __init__(self, sequence_length: int = 60):
@@ -72,19 +62,13 @@ class StockPreprocessor:
         self.target_scaler = StandardScaler()
         self.feature_columns = []
 
-    def create_sequences(self, data: pd.DataFrame, target_col: str = "close"):
+    def _create_sequences_global(self, data: pd.DataFrame, target_col: str = "close"):
         """
-        LEGACY METHOD: Creates sequences with global scaling across all stocks.
-
-        This method applies StandardScaler globally across all stocks, which can cause
-        artificial price/volume jumps between different stocks in the training data.
-
-        For better results, consider using create_sequences_by_symbol() instead,
-        which applies stock-specific scaling.
+        Creates sequences using global scaling across all stocks.
 
         Args:
             data: Combined DataFrame containing all stock data
-            target_col: Column name for target variable (default: "close")
+            target_col: Target column name
 
         Returns:
             tuple: (X_sequences, y_sequences) as numpy arrays
@@ -123,7 +107,7 @@ class StockPreprocessor:
     def _create_sequences_single_stock(
         self, symbol_data: pd.DataFrame, target_col: str, symbol: str
     ):
-        """Create sequences for a single stock with stock-specific scaling"""
+        """Processes a single stock's data with individual scaling."""
         # Drop unwanted columns if they exist
         if "capital gains" in symbol_data.columns:
             symbol_data = symbol_data.drop(columns=["capital gains"])
@@ -161,26 +145,18 @@ class StockPreprocessor:
         print(f"Created {len(X_sequences)} sequences with {len(feature_cols)} features")
         return np.array(X_sequences), np.array(y_sequences)
 
-    def create_sequences_by_symbol(self, data: pd.DataFrame, target_col: str = "close"):
+    def _create_sequences_stock_aware(
+        self, data: pd.DataFrame, target_col: str = "close"
+    ):
         """
-        RECOMMENDED METHOD: Creates sequences with stock-specific scaling.
-
-        This method applies StandardScaler individually to each stock, eliminating
-        artificial price/volume jumps between different stocks. It also tracks which
-        sequences belong to which stocks for stock-aware batching.
-
-        Benefits over create_sequences():
-        - No artificial scaling jumps between stocks (SPY $400 vs AAPL $150)
-        - Enables stock-aware batching (prevents temporal discontinuity)
-        - Better training stability and performance
+        Creates sequences with individual scaling per stock.
 
         Args:
             data: Combined DataFrame containing all stock data
-            target_col: Column name for target variable (default: "close")
+            target_col: Target column name
 
         Returns:
-            tuple: (X_sequences, y_sequences, stock_indices) where stock_indices
-                   tracks which stock each sequence belongs to
+            tuple: (X_sequences, y_sequences, stock_indices)
         """
         all_sequences = []
         all_targets = []
@@ -229,26 +205,24 @@ class StockPreprocessor:
         target_col: str = "close",
     ):
         """
-        Prepare data for training using either stock-aware or legacy processing.
+        Prepares data for training with train/val/test splits.
 
-        The processing method is controlled by config.use_stock_aware_processing:
-        - True: Uses stock-specific scaling and enables stock-aware batching
-        - False: Uses global scaling with standard batching (legacy behavior)
+        Processing method (stock-aware scaling and batching) controlled by config.use_stock_aware_processing.
 
         Args:
             data: Combined DataFrame containing all stock data
-            test_size: Fraction of data for testing
-            validation_size: Fraction of data for validation
-            target_col: Column name for target variable
+            test_size: Fraction for testing
+            validation_size: Fraction for validation
+            target_col: Target column name
 
         Returns:
-            dict: Data dictionary with train/val/test splits and metadata
+            dict: Data dictionary with splits and metadata
         """
         if config.use_stock_aware_processing:
             print(
                 "\nUsing stock-aware processing (stock-specific scaling + stock-aware batching)\n"
             )
-            X, y, stock_indices = self.create_sequences_by_symbol(data, target_col)
+            X, y, stock_indices = self._create_sequences_stock_aware(data, target_col)
 
             if len(X) == 0:
                 raise ValueError("No sequences created. Check your data.")
@@ -296,8 +270,8 @@ class StockPreprocessor:
                 "feature_columns": self.feature_columns,
             }
         else:
-            print("Using legacy processing (global scaling + standard batching)")
-            X, y = self.create_sequences(data, target_col)
+            print("Using global scaling processing")
+            X, y = self._create_sequences_global(data, target_col)
 
             if len(X) == 0:
                 raise ValueError("No sequences created. Check your data.")
@@ -338,27 +312,19 @@ class StockPreprocessor:
                 "feature_columns": self.feature_columns,
             }
 
-    # Utils
-
     def create_dataloaders(self, data_dict, batch_size: int = 32):
         """
-        Create appropriate data loaders based on the data processing method used.
-
-        Automatically detects whether stock-aware or legacy processing was used
-        by checking for stock metadata in the data dictionary.
+        Creates DataLoaders based on processing method used.
 
         Args:
-            data_dict: Data dictionary returned by prepare_data()
+            data_dict: Data dictionary from prepare_data()
             batch_size: Batch size for training
 
         Returns:
             dict: DataLoaders for train/val/test splits
         """
         if "stock_train" in data_dict:
-            # Stock-aware processing was used - create stock-aware datasets and loaders
-            print(
-                "Creating stock-aware dataloaders (batches contain sequences from same stock)"
-            )
+            print("Creating stock-aware dataloaders")
 
             train_dataset = StockAwareDataset(
                 data_dict["X_train"], data_dict["y_train"], data_dict["stock_train"]
@@ -376,8 +342,7 @@ class StockPreprocessor:
                 "test": StockAwareDataLoader(test_dataset, batch_size, shuffle=False),
             }
         else:
-            # Legacy processing was used - create standard datasets and loaders
-            print("Creating standard dataloaders (legacy batching)")
+            print("Creating standard dataloaders")
 
             train_dataset = StockDataset(data_dict["X_train"], data_dict["y_train"])
             val_dataset = StockDataset(data_dict["X_val"], data_dict["y_val"])
@@ -389,50 +354,56 @@ class StockPreprocessor:
                 "test": DataLoader(test_dataset, batch_size=batch_size, shuffle=False),
             }
 
-    def inverse_transform_target(self, scaled_target: np.ndarray, stock_indices: np.ndarray = None) -> np.ndarray:
+    # Utils
+
+    def inverse_transform_target(
+        self, scaled_target: np.ndarray, stock_indices: np.ndarray = None
+    ) -> np.ndarray:
         """
-        Inverse transform target values. Handles both legacy and stock-aware processing.
-        
+        Inverse transforms scaled target values back to original scale.
+
         Args:
-            scaled_target: Scaled target values to inverse transform
-            stock_indices: Stock indices for each prediction (for stock-aware processing)
-        
+            scaled_target: Scaled target values
+            stock_indices: Stock indices for stock-aware processing
+
         Returns:
             Original scale target values
         """
-        if hasattr(self, 'stock_target_scalers') and stock_indices is not None:
-            # Stock-aware processing: use stock-specific scalers
+        if hasattr(self, "stock_target_scalers") and stock_indices is not None:
+            # Use stock-specific scalers
             result = np.zeros_like(scaled_target)
-            
+
             # Convert to numpy array if it's a list
             if isinstance(stock_indices, list):
                 stock_indices = np.array(stock_indices)
-            
+
             for stock_symbol in np.unique(stock_indices):
                 mask = stock_indices == stock_symbol
-                
+
                 if np.sum(mask) == 0:
                     continue
-                    
+
                 scaler = self.stock_target_scalers[stock_symbol]
-                
+
                 result[mask] = scaler.inverse_transform(
                     scaled_target[mask].reshape(-1, 1)
                 )
-            
+
             return result
         else:
-            # Legacy processing: use global scaler
-            if hasattr(self, 'target_scaler'):
+            # Use global scaler
+            if hasattr(self, "target_scaler"):
                 return self.target_scaler.inverse_transform(
                     scaled_target.reshape(-1, 1)
                 ).flatten()
             else:
                 # Fallback: try to use the first stock's scaler if available
-                if hasattr(self, 'stock_target_scalers') and self.stock_target_scalers:
+                if hasattr(self, "stock_target_scalers") and self.stock_target_scalers:
                     first_scaler = list(self.stock_target_scalers.values())[0]
                     return first_scaler.inverse_transform(
                         scaled_target.reshape(-1, 1)
                     ).flatten()
                 else:
-                    raise ValueError("No target scaler available for inverse transformation")
+                    raise ValueError(
+                        "No target scaler available for inverse transformation"
+                    )
