@@ -63,15 +63,13 @@ class StockTrainer:
 
         return model.to(self.device)
 
-    def train_model(self, model, dataloaders, model_name: str, preprocessor):
+    def train_model(self, model, dataloaders, model_name: str):
         loss_func = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, patience=5, factor=0.5
         )
 
-        best_val_loss = float("inf")
-        patience_counter = 0
         train_history = {"train_loss": [], "val_loss": []}
 
         for epoch in tqdm(range(config.num_epochs), desc=f"Training {model_name}"):
@@ -98,30 +96,15 @@ class StockTrainer:
                 },
             )
 
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
-
-                model.save_model(
-                    f"{config.model_save_path}/best_{model_name.lower().replace(' ', '_')}.pth"
-                )
-
-            else:
-                patience_counter += 1
-                if patience_counter >= config.patience:
-                    print(f"Early stopping triggered for {model_name} at epoch {epoch}")
-                    break
-
             if (epoch + 1) % 10 == 0:
                 print(
                     f"{model_name} - Epoch {epoch+1}: "
                     f"Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}"
                 )
 
-        model = model.__class__.load_model(
-            f"{config.model_save_path}/best_{model_name.lower().replace(' ', '_')}.pth",
-            model.__class__,
-        ).to(self.device)
+        model.save_model(
+            f"{config.model_save_path}/final_{model_name.lower().replace(' ', '_')}.pth"
+        )
 
         return model, train_history
 
@@ -192,9 +175,7 @@ def main():
     model_name = "VanillaRNN test"
     print(f"Model info: {model.get_model_info()}\n")
 
-    trained_model, history = trainer.train_model(
-        model, dataloaders, model_name, preprocessor
-    )
+    trained_model, history = trainer.train_model(model, dataloaders, model_name)
 
     results = trainer.evaluate_model(
         trained_model, dataloaders, model_name, preprocessor, data_dict
