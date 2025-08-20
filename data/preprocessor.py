@@ -246,7 +246,7 @@ class StockPreprocessor:
         """
         if config.use_stock_aware_processing:
             print(
-                "Using stock-aware processing (stock-specific scaling + stock-aware batching)"
+                "\nUsing stock-aware processing (stock-specific scaling + stock-aware batching)\n"
             )
             X, y, stock_indices = self.create_sequences_by_symbol(data, target_col)
 

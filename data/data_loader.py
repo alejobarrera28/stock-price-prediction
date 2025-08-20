@@ -78,7 +78,7 @@ class StockDataLoader:
             print(f"Data loaded from {filepath}")
             return data
         except FileNotFoundError:
-            print(f"Warning: File {filepath} not found. Fetching fresh data.")
+            print(f"File {filepath} not found. Fetching fresh data.")
             return self.get_combined_data()
 
 

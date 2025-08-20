@@ -27,10 +27,8 @@ class StockTrainer:
         torch.manual_seed(config.random_seed)
         np.random.seed(config.random_seed)
 
-        print(f"Using device: {self.device}")
-
     def load_and_preprocess_data(self, force_reload: bool = False):
-        print("Loading and preprocessing data...")
+        print("\nLoading and preprocessing data...\n")
 
         data_loader = StockDataLoader(symbols=config.stocks, period=config.data_period)
 
@@ -75,8 +73,6 @@ class StockTrainer:
         best_val_loss = float("inf")
         patience_counter = 0
         train_history = {"train_loss": [], "val_loss": []}
-
-        print(f"Training {model_name}...")
 
         for epoch in tqdm(range(config.num_epochs), desc=f"Training {model_name}"):
             train_metrics = model.train_epoch(
@@ -132,8 +128,6 @@ class StockTrainer:
     def evaluate_model(
         self, model, dataloaders, model_name: str, preprocessor, data_dict
     ):
-        print(f"Evaluating {model_name}...")
-
         # For evaluation, use the original test data directly to preserve order
         X_test = torch.FloatTensor(data_dict["X_test"]).to(self.device)
         y_test = data_dict["y_test"]
@@ -157,7 +151,7 @@ class StockTrainer:
             test_actuals_orig, test_predictions_orig
         )
 
-        print(f"{model_name} Test Metrics:")
+        print(f"\n{model_name} Test Metrics:")
         for metric, value in metrics.items():
             print(f"  {metric}: {value:.4f}")
 
@@ -196,7 +190,7 @@ def main():
 
     model = trainer.create_model(input_size)
     model_name = "VanillaRNN test"
-    print(f"Model info: {model.get_model_info()}")
+    print(f"Model info: {model.get_model_info()}\n")
 
     trained_model, history = trainer.train_model(
         model, dataloaders, model_name, preprocessor
@@ -210,15 +204,16 @@ def main():
     os.makedirs("plots", exist_ok=True)
 
     trainer.visualizer.plot_training_history(
-        history, model_name, 
-        save_path=f"plots/{model_name.replace(' ', '_')}_training_history.png"
+        history,
+        model_name,
+        save_path=f"plots/{model_name.replace(' ', '_')}_training_history.png",
     )
 
     trainer.visualizer.plot_predictions_vs_actual(
         results["y_true"][:200],
         results["y_pred"][:200],
         model_name,
-        save_path=f"plots/{model_name.replace(' ', '_')}_predictions.png"
+        save_path=f"plots/{model_name.replace(' ', '_')}_predictions.png",
     )
 
     print(f"Plots saved to plots/ directory")
