@@ -72,7 +72,7 @@ class StockPreprocessor:
         self.target_scaler = StandardScaler()
         self.feature_columns = []
 
-    def _create_sequences(self, data: pd.DataFrame, target_col: str = "close"):
+    def create_sequences(self, data: pd.DataFrame, target_col: str = "close"):
         """
         LEGACY METHOD: Creates sequences with global scaling across all stocks.
 
@@ -297,7 +297,7 @@ class StockPreprocessor:
             }
         else:
             print("Using legacy processing (global scaling + standard batching)")
-            X, y = self._create_sequences(data, target_col)
+            X, y = self.create_sequences(data, target_col)
 
             if len(X) == 0:
                 raise ValueError("No sequences created. Check your data.")
@@ -337,3 +337,102 @@ class StockPreprocessor:
                 "target_scaler": self.target_scaler,
                 "feature_columns": self.feature_columns,
             }
+
+    # Utils
+
+    def create_dataloaders(self, data_dict, batch_size: int = 32):
+        """
+        Create appropriate data loaders based on the data processing method used.
+
+        Automatically detects whether stock-aware or legacy processing was used
+        by checking for stock metadata in the data dictionary.
+
+        Args:
+            data_dict: Data dictionary returned by prepare_data()
+            batch_size: Batch size for training
+
+        Returns:
+            dict: DataLoaders for train/val/test splits
+        """
+        if "stock_train" in data_dict:
+            # Stock-aware processing was used - create stock-aware datasets and loaders
+            print(
+                "Creating stock-aware dataloaders (batches contain sequences from same stock)"
+            )
+
+            train_dataset = StockAwareDataset(
+                data_dict["X_train"], data_dict["y_train"], data_dict["stock_train"]
+            )
+            val_dataset = StockAwareDataset(
+                data_dict["X_val"], data_dict["y_val"], data_dict["stock_val"]
+            )
+            test_dataset = StockAwareDataset(
+                data_dict["X_test"], data_dict["y_test"], data_dict["stock_test"]
+            )
+
+            return {
+                "train": StockAwareDataLoader(train_dataset, batch_size, shuffle=True),
+                "val": StockAwareDataLoader(val_dataset, batch_size, shuffle=False),
+                "test": StockAwareDataLoader(test_dataset, batch_size, shuffle=False),
+            }
+        else:
+            # Legacy processing was used - create standard datasets and loaders
+            print("Creating standard dataloaders (legacy batching)")
+
+            train_dataset = StockDataset(data_dict["X_train"], data_dict["y_train"])
+            val_dataset = StockDataset(data_dict["X_val"], data_dict["y_val"])
+            test_dataset = StockDataset(data_dict["X_test"], data_dict["y_test"])
+
+            return {
+                "train": DataLoader(train_dataset, batch_size=batch_size, shuffle=True),
+                "val": DataLoader(val_dataset, batch_size=batch_size, shuffle=False),
+                "test": DataLoader(test_dataset, batch_size=batch_size, shuffle=False),
+            }
+
+    def inverse_transform_target(self, scaled_target: np.ndarray, stock_indices: np.ndarray = None) -> np.ndarray:
+        """
+        Inverse transform target values. Handles both legacy and stock-aware processing.
+        
+        Args:
+            scaled_target: Scaled target values to inverse transform
+            stock_indices: Stock indices for each prediction (for stock-aware processing)
+        
+        Returns:
+            Original scale target values
+        """
+        if hasattr(self, 'stock_target_scalers') and stock_indices is not None:
+            # Stock-aware processing: use stock-specific scalers
+            result = np.zeros_like(scaled_target)
+            
+            # Convert to numpy array if it's a list
+            if isinstance(stock_indices, list):
+                stock_indices = np.array(stock_indices)
+            
+            for stock_symbol in np.unique(stock_indices):
+                mask = stock_indices == stock_symbol
+                
+                if np.sum(mask) == 0:
+                    continue
+                    
+                scaler = self.stock_target_scalers[stock_symbol]
+                
+                result[mask] = scaler.inverse_transform(
+                    scaled_target[mask].reshape(-1, 1)
+                )
+            
+            return result
+        else:
+            # Legacy processing: use global scaler
+            if hasattr(self, 'target_scaler'):
+                return self.target_scaler.inverse_transform(
+                    scaled_target.reshape(-1, 1)
+                ).flatten()
+            else:
+                # Fallback: try to use the first stock's scaler if available
+                if hasattr(self, 'stock_target_scalers') and self.stock_target_scalers:
+                    first_scaler = list(self.stock_target_scalers.values())[0]
+                    return first_scaler.inverse_transform(
+                        scaled_target.reshape(-1, 1)
+                    ).flatten()
+                else:
+                    raise ValueError("No target scaler available for inverse transformation")
