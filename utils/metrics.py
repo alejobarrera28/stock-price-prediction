@@ -57,3 +57,12 @@ class StockPredictionMetrics:
         }
 
         return metrics
+
+    def log_metrics(self, model_name: str, epoch: int, metrics):
+        log_entry = {
+            "model": model_name,
+            "epoch": epoch,
+            "timestamp": pd.Timestamp.now(),
+            **metrics,
+        }
+        self.metrics_history.append(log_entry)

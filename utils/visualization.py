@@ -95,7 +95,9 @@ class StockVisualization:
         plt.tight_layout()
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        plt.show()
+            plt.close()
+        else:
+            plt.show()
 
     def plot_predictions_vs_actual(
         self,
@@ -142,4 +144,6 @@ class StockVisualization:
         plt.tight_layout()
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        plt.show()
+            plt.close()
+        else:
+            plt.show()

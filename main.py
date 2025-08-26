@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import config
 from data.data_loader import StockDataLoader
 from data.preprocessor import StockPreprocessor
-from models.vanilla_rnn import VanillaRNN
+from models.rnn import RNN
 from utils.metrics import StockPredictionMetrics
 from utils.visualization import StockVisualization
 
@@ -54,7 +54,7 @@ class StockTrainer:
         return data_dict, dataloaders, preprocessor
 
     def create_model(self, input_size: int):
-        model = VanillaRNN(
+        model = RNN(
             input_size=input_size,
             hidden_size=config.hidden_size,
             num_layers=config.num_layers,
@@ -96,14 +96,14 @@ class StockTrainer:
                 },
             )
 
-            if (epoch + 1) % 10 == 0:
+            if (epoch + 1) % int(config.num_epochs/10) == 0:
                 print(
                     f"{model_name} - Epoch {epoch+1}: "
                     f"Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}"
                 )
 
         model.save_model(
-            f"{config.model_save_path}/final_{model_name.lower().replace(' ', '_')}.pth"
+            f"{config.model_save_path}/{model_name.lower().replace(' ', '_')}.pth"
         )
 
         return model, train_history
@@ -172,7 +172,7 @@ def main():
     print(f"{'='*50}")
 
     model = trainer.create_model(input_size)
-    model_name = "VanillaRNN test"
+    model_name = "RNN"
     print(f"Model info: {model.get_model_info()}\n")
 
     trained_model, history = trainer.train_model(model, dataloaders, model_name)
@@ -180,9 +180,6 @@ def main():
     results = trainer.evaluate_model(
         trained_model, dataloaders, model_name, preprocessor, data_dict
     )
-
-    # Create plots directory if it doesn't exist
-    os.makedirs("plots", exist_ok=True)
 
     trainer.visualizer.plot_training_history(
         history,
@@ -197,7 +194,7 @@ def main():
         save_path=f"plots/{model_name.replace(' ', '_')}_predictions.png",
     )
 
-    print(f"Plots saved to plots/ directory")
+    print(f"\nPlots saved to plots/ directory")
 
 
 if __name__ == "__main__":

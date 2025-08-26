@@ -1,5 +1,5 @@
 """
-Vanilla RNN implementation for stock price prediction.
+RNN implementation for stock price prediction.
 
 This module contains a custom implementation of a vanilla RNN (Recurrent Neural Network)
 built from scratch using PyTorch. The implementation includes both single RNN layers
@@ -7,7 +7,7 @@ and a multi-layer RNN model suitable for time series prediction tasks.
 
 Classes:
     RNNLayer: A single RNN layer implementing the basic recurrent computation
-    VanillaRNN: A multi-layer RNN model with training, evaluation, and prediction methods
+    RNN: A multi-layer RNN model with training, evaluation, and prediction methods
 """
 
 import torch
@@ -19,7 +19,7 @@ import config
 
 class RNNLayer(nn.Module):
     """
-    A single vanilla RNN layer implementing the basic recurrent computation.
+    A single RNN layer implementing the basic recurrent computation.
 
     This layer applies the standard RNN formula:
     h_t = tanh(W_ih * x_t + W_hh * h_{t-1} + b_ih)
@@ -73,9 +73,9 @@ class RNNLayer(nn.Module):
         return h_t
 
 
-class VanillaRNN(nn.Module):
+class RNN(nn.Module):
     """
-    Multi-layer Vanilla RNN for time series prediction.
+    Multi-layer RNN for time series prediction.
 
     This model stacks multiple RNN layers and includes dropout for regularization.
     It's designed specifically for stock price prediction tasks where we want to
@@ -316,10 +316,10 @@ class VanillaRNN(nn.Module):
 
         Args:
             filepath (str): Path to the saved model file
-            model_class: The model class to instantiate (should be VanillaRNN)
+            model_class: The model class to instantiate (should be RNN)
 
         Returns:
-            VanillaRNN: Loaded model with trained weights
+            RNN: Loaded model with trained weights
         """
         # Load model state dictionary
         model_state = torch.load(filepath, map_location="cpu")
