@@ -6,7 +6,6 @@ import pandas as pd
 import os
 from tqdm import tqdm
 import argparse
-import matplotlib.pyplot as plt
 
 import config
 from data.data_loader import StockDataLoader
@@ -109,7 +108,7 @@ class StockTrainer:
         return model, train_history
 
     def evaluate_model(
-        self, model, dataloaders, model_name: str, preprocessor, data_dict
+        self, model, model_name: str, preprocessor, data_dict
     ):
         # For evaluation, use the original test data directly to preserve order
         X_test = torch.FloatTensor(data_dict["X_test"]).to(self.device)
@@ -178,7 +177,7 @@ def main():
     trained_model, history = trainer.train_model(model, dataloaders, model_name)
 
     results = trainer.evaluate_model(
-        trained_model, dataloaders, model_name, preprocessor, data_dict
+        trained_model, model_name, preprocessor, data_dict
     )
 
     trainer.visualizer.plot_training_history(

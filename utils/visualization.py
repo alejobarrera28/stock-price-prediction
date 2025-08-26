@@ -40,38 +40,11 @@ class StockVisualization:
         plt.tight_layout()
         plt.show()
 
-    def plot_correlation_matrix(self, data: pd.DataFrame, figsize=None):
-        fig, ax = plt.subplots(figsize=figsize or (12, 10))
-
-        plt.grid(False)
-
-        numeric_columns = data.select_dtypes(include=[np.number]).columns
-        correlation_matrix = data[numeric_columns].corr()
-
-        mask = np.triu(np.ones_like(correlation_matrix, dtype=bool))
-
-        sns.heatmap(
-            correlation_matrix,
-            mask=mask,
-            annot=True,
-            cmap="coolwarm",
-            center=0,
-            square=True,
-            fmt=".2f",
-            cbar_kws={"shrink": 0.8},
-            ax=ax,
-        )
-
-        ax.set_title("Feature Correlation Matrix")
-        fig.tight_layout()
-
-        plt.show()
-
     # Training and Prediction Visualization methods
     def plot_training_history(self, history, model_name: str, save_path: str = None):
         epochs = range(1, len(history["train_loss"]) + 1)
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        _, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
         ax1.plot(epochs, history["train_loss"], "b-", label="Training Loss")
         if "val_loss" in history:
@@ -107,7 +80,7 @@ class StockVisualization:
         symbol: str = None,
         save_path: str = None,
     ):
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(15, 12))
+        _, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(15, 12))
 
         dates = pd.date_range(start="2023-01-01", periods=len(y_true), freq="D")
 

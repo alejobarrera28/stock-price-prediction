@@ -1,7 +1,6 @@
 random_seed = 42
 
 stocks = [
-    "NVDA",
     "AAPL",
     "MSFT",
     "GOOGL",
@@ -39,8 +38,3 @@ model_save_path = "saved_models"
 data_save_path = "data/processed"
 
 device = "mps"
-
-# Stock-Aware Processing Configuration
-# Set to True to enable stock-specific scaling and stock-aware batching
-# Set to False to use traditional global scaling and standard batching
-use_stock_aware_processing = True

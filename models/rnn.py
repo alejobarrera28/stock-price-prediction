@@ -82,7 +82,7 @@ class RNN(nn.Module):
     predict future values based on historical sequences.
 
     Args:
-        input_size (int): Number of input features (e.g., OHLCV dimensions)
+        input_size (int): Number of input features (1 for close price)
         hidden_size (int): Size of the hidden state in each RNN layer
         num_layers (int): Number of stacked RNN layers
         output_size (int): Number of output predictions (default: 1 for single stock price)
