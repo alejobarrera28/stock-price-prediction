@@ -22,7 +22,7 @@ stocks = [
 ]
 data_period = "10y"
 
-sequence_length = 50
+sequence_length = 60
 test_size = 0.15
 validation_size = 0.15
 

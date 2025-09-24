@@ -120,3 +120,103 @@ class StockVisualization:
             plt.close()
         else:
             plt.show()
+
+    def plot_per_stock_results(self, stock_results: dict, model_name: str, save_path: str = None):
+        """Plot per-stock prediction results in a grid layout."""
+        n_stocks = len(stock_results)
+        if n_stocks == 0:
+            print("No stock results to plot")
+            return
+            
+        # Calculate grid dimensions
+        n_cols = min(4, n_stocks)
+        n_rows = (n_stocks + n_cols - 1) // n_cols
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 4*n_rows))
+        if n_rows == 1 and n_cols == 1:
+            axes = [axes]
+        elif n_rows == 1 or n_cols == 1:
+            axes = axes.flatten()
+        else:
+            axes = axes.flatten()
+        
+        for i, (stock, result) in enumerate(sorted(stock_results.items())):
+            y_true = result['y_true']
+            y_pred = result['y_pred']
+            metrics = result['metrics']
+            
+            # Create time series for this stock
+            axes[i].plot(y_true, label='Actual', color='blue', alpha=0.8, linewidth=1.5)
+            axes[i].plot(y_pred, label='Predicted', color='red', alpha=0.8, linewidth=1.5)
+            
+            axes[i].set_title(
+                f"{stock}\n"
+                f"RMSE: {metrics['rmse']:.1f}, R²: {metrics['r2']:.3f}\n"
+                f"({len(y_true)} samples)",
+                fontsize=10
+            )
+            axes[i].set_ylabel("Price ($)")
+            axes[i].legend(fontsize=8)
+            axes[i].grid(True, alpha=0.3)
+            
+        # Hide unused subplots
+        for j in range(i + 1, len(axes)):
+            axes[j].set_visible(False)
+        
+        plt.suptitle(f"{model_name} - Per-Stock Test Results", fontsize=16, fontweight="bold")
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+            plt.close()
+        else:
+            plt.show()
+            
+    def plot_stock_scatter_comparison(self, stock_results: dict, model_name: str, save_path: str = None):
+        """Plot scatter plots for all stocks in one figure."""
+        n_stocks = len(stock_results)
+        if n_stocks == 0:
+            print("No stock results to plot")
+            return
+            
+        # Calculate grid dimensions
+        n_cols = min(4, n_stocks)
+        n_rows = (n_stocks + n_cols - 1) // n_cols
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+        if n_rows == 1 and n_cols == 1:
+            axes = [axes]
+        elif n_rows == 1 or n_cols == 1:
+            axes = axes.flatten()
+        else:
+            axes = axes.flatten()
+            
+        for i, (stock, result) in enumerate(sorted(stock_results.items())):
+            y_true = result['y_true']
+            y_pred = result['y_pred']
+            metrics = result['metrics']
+            
+            axes[i].scatter(y_true, y_pred, alpha=0.6, color=self.colors[i % len(self.colors)])
+            
+            # Perfect prediction line
+            min_val = min(y_true.min(), y_pred.min())
+            max_val = max(y_true.max(), y_pred.max())
+            axes[i].plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8)
+            
+            axes[i].set_xlabel("Actual Price ($)")
+            axes[i].set_ylabel("Predicted Price ($)")
+            axes[i].set_title(f"{stock} (R²: {metrics['r2']:.3f})")
+            axes[i].grid(True, alpha=0.3)
+            
+        # Hide unused subplots
+        for j in range(i + 1, len(axes)):
+            axes[j].set_visible(False)
+            
+        plt.suptitle(f"{model_name} - Actual vs Predicted Scatter Plots", fontsize=16, fontweight="bold")
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+            plt.close()
+        else:
+            plt.show()

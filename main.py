@@ -95,7 +95,7 @@ class StockTrainer:
                 },
             )
 
-            if (epoch + 1) % int(config.num_epochs/10) == 0:
+            if (epoch + 1) % max(1, int(config.num_epochs/10)) == 0:
                 print(
                     f"{model_name} - Epoch {epoch+1}: "
                     f"Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}"
@@ -122,25 +122,68 @@ class StockTrainer:
 
         test_actuals = y_test
 
-        test_predictions_orig = preprocessor.inverse_transform_target(
-            test_predictions, stock_test
-        )
-        test_actuals_orig = preprocessor.inverse_transform_target(
-            test_actuals, stock_test
-        )
+        print(f"DEBUG - test_predictions.shape: {test_predictions.shape}")
+        print(f"DEBUG - test_actuals.shape: {test_actuals.shape}")  
+        print(f"DEBUG - stock_test type: {type(stock_test)}, length: {len(stock_test) if stock_test else 'None'}")
+        print(f"DEBUG - stock_test sample: {stock_test[:5] if stock_test else 'None'}")
 
-        metrics = self.metrics.calculate_all_metrics(
+        # Handle inverse transformation with error checking
+        try:
+            test_predictions_orig = preprocessor.inverse_transform_target(
+                test_predictions, stock_test
+            )
+            test_actuals_orig = preprocessor.inverse_transform_target(
+                test_actuals, stock_test
+            )
+        except Exception as e:
+            print(f"Warning: Error in inverse transformation: {e}")
+            print("Using scaled values for evaluation")
+            test_predictions_orig = test_predictions.flatten()
+            test_actuals_orig = test_actuals.flatten()
+
+        # Overall metrics
+        overall_metrics = self.metrics.calculate_all_metrics(
             test_actuals_orig, test_predictions_orig
         )
 
-        print(f"\n{model_name} Test Metrics:")
-        for metric, value in metrics.items():
+        print(f"\n{model_name} Overall Test Metrics:")
+        for metric, value in overall_metrics.items():
             print(f"  {metric}: {value:.4f}")
+
+        # Per-stock results 
+        stock_results = {}
+        if stock_test:
+            unique_stocks = sorted(set(stock_test))
+            print(f"\n{model_name} Per-Stock Test Metrics:")
+            print("-" * 60)
+            
+            for stock in unique_stocks:
+                stock_mask = np.array([s == stock for s in stock_test])
+                if np.sum(stock_mask) == 0:
+                    continue
+                    
+                stock_true = test_actuals_orig[stock_mask].flatten()  # Flatten for metrics
+                stock_pred = test_predictions_orig[stock_mask].flatten()  # Flatten for metrics
+                
+                stock_metrics = self.metrics.calculate_all_metrics(stock_true, stock_pred)
+                stock_results[stock] = {
+                    "y_true": stock_true,
+                    "y_pred": stock_pred,
+                    "metrics": stock_metrics,
+                    "count": len(stock_true)
+                }
+                
+                print(f"{stock:6} ({len(stock_true):4d} samples): "
+                      f"RMSE={stock_metrics['rmse']:7.2f}, "
+                      f"MAE={stock_metrics['mae']:7.2f}, "
+                      f"R²={stock_metrics['r2']:6.3f}")
 
         return {
             "y_true": test_actuals_orig,
             "y_pred": test_predictions_orig,
-            "metrics": metrics,
+            "stock_test": stock_test,
+            "overall_metrics": overall_metrics,
+            "stock_results": stock_results,
         }
 
 
@@ -186,15 +229,24 @@ def main():
         save_path=f"plots/{model_name.replace(' ', '_')}_training_history.png",
     )
 
-    trainer.visualizer.plot_predictions_vs_actual(
-        results["y_true"][:200],
-        results["y_pred"][:200],
-        model_name,
-        save_path=f"plots/{model_name.replace(' ', '_')}_predictions.png",
-    )
+    # Create per-stock visualizations
+    if "stock_results" in results and results["stock_results"]:
+        trainer.visualizer.plot_per_stock_results(
+            results["stock_results"],
+            model_name,
+            save_path=f"plots/{model_name.replace(' ', '_')}_per_stock_results.png",
+        )
+        
+        trainer.visualizer.plot_stock_scatter_comparison(
+            results["stock_results"],
+            model_name,
+            save_path=f"plots/{model_name.replace(' ', '_')}_scatter_comparison.png",
+        )
 
-    print(f"\nPlots saved to plots/ directory")
-
+    print(f"\nPlots saved to plots/ directory:")
+    print(f"  - {model_name}_training_history.png")
+    print(f"  - {model_name}_per_stock_results.png")
+    print(f"  - {model_name}_scatter_comparison.png")
 
 if __name__ == "__main__":
     main()

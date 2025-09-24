@@ -1,10 +1,8 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import Dataset
-import config
 from data.data_loader import StockAwareDataLoader
 
 
@@ -50,20 +48,27 @@ class StockPreprocessor:
 
 
     def _create_sequences_single_stock(
-        self, symbol_data: pd.DataFrame, target_col: str, symbol: str
+        self, symbol_data: pd.DataFrame, target_col: str, symbol: str, 
+        train_scaler: StandardScaler = None, train_target_scaler: StandardScaler = None
     ):
         """Processes a single stock's data with individual scaling."""
         data_clean = symbol_data.dropna().copy()
         close_data = data_clean[[target_col]].values
         
-        stock_scaler = StandardScaler()
-        stock_target_scaler = StandardScaler()
-        
-        X_scaled = stock_scaler.fit_transform(close_data)
-        y_scaled = stock_target_scaler.fit_transform(close_data)
-        
-        self.stock_scalers[symbol] = stock_scaler
-        self.stock_target_scalers[symbol] = stock_target_scaler
+        # Use provided scalers (fitted on training data) or create new ones
+        if train_scaler is not None:
+            stock_scaler = train_scaler
+            stock_target_scaler = train_target_scaler
+            X_scaled = stock_scaler.transform(close_data)
+            y_scaled = stock_target_scaler.transform(close_data)
+        else:
+            # This is training data - fit new scalers
+            stock_scaler = StandardScaler()
+            stock_target_scaler = StandardScaler()
+            X_scaled = stock_scaler.fit_transform(close_data)
+            y_scaled = stock_target_scaler.fit_transform(close_data)
+            self.stock_scalers[symbol] = stock_scaler
+            self.stock_target_scalers[symbol] = stock_target_scaler
         
         X_sequences = []
         y_sequences = []
@@ -76,14 +81,17 @@ class StockPreprocessor:
         return np.array(X_sequences), np.array(y_sequences)
 
     def _create_sequences_stock_aware(
-        self, data: pd.DataFrame, target_col: str = "close"
+        self, data: pd.DataFrame, target_col: str = "close", is_training: bool = True
     ):
         """Creates sequences with individual scaling per stock."""
         all_sequences = []
         all_targets = []
+        all_dates = []
         stock_indices = []
-        self.stock_scalers = {}
-        self.stock_target_scalers = {}
+        
+        if is_training:
+            self.stock_scalers = {}
+            self.stock_target_scalers = {}
 
         for symbol in data["symbol"].unique():
             symbol_data = data[data["symbol"] == symbol].copy()
@@ -97,24 +105,37 @@ class StockPreprocessor:
                 )
                 continue
 
+            # Use existing scalers for val/test data
+            train_scaler = None if is_training else self.stock_scalers.get(symbol)
+            train_target_scaler = None if is_training else self.stock_target_scalers.get(symbol)
+            
+            if not is_training and train_scaler is None:
+                print(f"Warning: No training scaler found for {symbol} (likely not in training period), skipping")
+                continue
+
             sequences, targets = self._create_sequences_single_stock(
-                symbol_data, target_col, symbol
+                symbol_data, target_col, symbol, train_scaler, train_target_scaler
             )
 
             if len(sequences) > 0:
+                # Extract dates from index for each sequence (date of the target point)
+                dates = symbol_data.index[self.sequence_length:].values
+                
                 all_sequences.append(sequences)
                 all_targets.append(targets)
+                all_dates.extend(dates)
                 stock_indices.extend([symbol] * len(sequences))
 
         if all_sequences:
             return (
                 np.concatenate(all_sequences),
                 np.concatenate(all_targets),
+                all_dates,
                 stock_indices,
             )
         else:
             print("Error: No sequences created from any symbol")
-            return np.array([]), np.array([]), []
+            return np.array([]), np.array([]), [], []
 
     def prepare_data(
         self,
@@ -123,42 +144,74 @@ class StockPreprocessor:
         validation_size: float = 0.15,
         target_col: str = "close",
     ):
-        """Prepares data for training with train/val/test splits."""
-        print("\nUsing stock-aware processing\n")
-        X, y, stock_indices = self._create_sequences_stock_aware(data, target_col)
-
-        if len(X) == 0:
-            raise ValueError("No sequences created. Check your data.")
-
-        train_size = 1 - test_size - validation_size
-
-        X_temp, X_test, y_temp, y_test, stock_temp, stock_test = train_test_split(
-            X,
-            y,
-            stock_indices,
-            test_size=test_size,
-            shuffle=False,
-            random_state=config.random_seed,
+        """Prepares data for training with proper temporal splits by date and no data leakage."""
+        print("\nUsing stock-aware processing with date-based splitting (no data leakage)\n")
+        
+        # First, split data by dates to prevent leakage
+        dates = pd.to_datetime(data.index, utc=True).tz_convert(None)
+        min_date = dates.min()
+        max_date = dates.max()
+        date_range = max_date - min_date
+        
+        train_cutoff = min_date + date_range * (1 - test_size - validation_size)
+        val_cutoff = min_date + date_range * (1 - test_size)
+        
+        print(f"Date range: {min_date.date()} to {max_date.date()}")
+        print(f"Train period: {min_date.date()} to {train_cutoff.date()}")
+        print(f"Validation period: {train_cutoff.date()} to {val_cutoff.date()}")
+        print(f"Test period: {val_cutoff.date()} to {max_date.date()}")
+        
+        # Split data by dates
+        train_mask = dates < train_cutoff
+        val_mask = (dates >= train_cutoff) & (dates < val_cutoff)
+        test_mask = dates >= val_cutoff
+        
+        train_data = data[train_mask].copy()
+        val_data = data[val_mask].copy()
+        test_data = data[test_mask].copy()
+        
+        print(f"Raw data split - Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)}")
+        
+        # Process training data and fit scalers
+        print("\n=== Processing Training Data (fitting scalers) ===")
+        X_train, y_train, train_dates, stock_train = self._create_sequences_stock_aware(
+            train_data, target_col, is_training=True
         )
-
-        val_size_adjusted = validation_size / (train_size + validation_size)
-        X_train, X_val, y_train, y_val, stock_train, stock_val = train_test_split(
-            X_temp,
-            y_temp,
-            stock_temp,
-            test_size=val_size_adjusted,
-            shuffle=False,
-            random_state=config.random_seed,
+        
+        # Process validation data using training scalers
+        print("\n=== Processing Validation Data (using training scalers) ===")
+        X_val, y_val, val_dates, stock_val = self._create_sequences_stock_aware(
+            val_data, target_col, is_training=False
         )
+        
+        # Process test data using training scalers
+        print("\n=== Processing Test Data (using training scalers) ===")
+        X_test, y_test, test_dates, stock_test = self._create_sequences_stock_aware(
+            test_data, target_col, is_training=False
+        )
+        
+        if len(X_train) == 0:
+            raise ValueError("No training sequences created. Check your data.")
 
         print(
-            f"Data split - Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}"
+            f"\nSequence split - Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}"
         )
-
+        
+        # Verify each split contains data from available stocks
+        all_stocks = set(train_data['symbol'].unique()) | set(val_data['symbol'].unique()) | set(test_data['symbol'].unique())
+        train_stocks = set(stock_train) if stock_train else set()
+        val_stocks = set(stock_val) if stock_val else set() 
+        test_stocks = set(stock_test) if stock_test else set()
+        
+        print(f"Stocks in training: {len(train_stocks)}/{len(all_stocks)} - {sorted(train_stocks)}")
+        print(f"Stocks in validation: {len(val_stocks)}/{len(all_stocks)} - {sorted(val_stocks)}")
+        print(f"Stocks in test: {len(test_stocks)}/{len(all_stocks)} - {sorted(test_stocks)}")
+        
         # Validate that we're using only close price
-        assert X_train.shape[2] == 1, f"Expected input_size=1 (close price only), got {X_train.shape[2]}"
-        assert len(self.feature_columns) == 1, f"Expected 1 feature column, got {len(self.feature_columns)}"
-        assert self.feature_columns[0] == "close", f"Expected 'close' feature, got {self.feature_columns[0]}"
+        if len(X_train) > 0:
+            assert X_train.shape[2] == 1, f"Expected input_size=1 (close price only), got {X_train.shape[2]}"
+            assert len(self.feature_columns) == 1, f"Expected 1 feature column, got {len(self.feature_columns)}"
+            assert self.feature_columns[0] == "close", f"Expected 'close' feature, got {self.feature_columns[0]}"
 
         return {
             "X_train": X_train,
@@ -170,7 +223,7 @@ class StockPreprocessor:
             "X_test": X_test,
             "y_test": y_test,
             "stock_test": stock_test,
-            "input_size": X_train.shape[2],
+            "input_size": X_train.shape[2] if len(X_train) > 0 else 1,
             "stock_scalers": self.stock_scalers,
             "stock_target_scalers": self.stock_target_scalers,
             "feature_columns": self.feature_columns,
@@ -213,9 +266,13 @@ class StockPreprocessor:
             if np.sum(mask) == 0:
                 continue
 
-            scaler = self.stock_target_scalers[stock_symbol]
-            result[mask] = scaler.inverse_transform(
-                scaled_target[mask].reshape(-1, 1)
-            )
+            if stock_symbol not in self.stock_target_scalers:
+                print(f"Warning: No scaler found for {stock_symbol} during inverse transform")
+                result[mask] = scaled_target[mask]  # Return as-is if no scaler
+            else:
+                scaler = self.stock_target_scalers[stock_symbol]
+                result[mask] = scaler.inverse_transform(
+                    scaled_target[mask].reshape(-1, 1)
+                )
 
         return result

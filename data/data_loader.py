@@ -1,6 +1,5 @@
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import config
 
 
@@ -55,7 +54,7 @@ class StockDataLoader:
             combined_data.append(data_copy)
 
         if combined_data:
-            return pd.concat(combined_data, ignore_index=True)
+            return pd.concat(combined_data, ignore_index=False)
         else:
             return pd.DataFrame()
 
@@ -65,7 +64,7 @@ class StockDataLoader:
             filepath = f"{config.data_save_path}/raw_stock_data.csv"
 
         combined_data = self.get_combined_data()
-        combined_data.to_csv(filepath, index=False)
+        combined_data.to_csv(filepath, index=True)
         print(f"Data saved to {filepath}")
 
     def load_data(self, filepath: str = None) -> pd.DataFrame:
@@ -74,7 +73,7 @@ class StockDataLoader:
             filepath = f"{config.data_save_path}/raw_stock_data.csv"
 
         try:
-            data = pd.read_csv(filepath)
+            data = pd.read_csv(filepath, index_col=0, parse_dates=True)
             print(f"Data loaded from {filepath}")
             return data
         except FileNotFoundError:
@@ -89,7 +88,15 @@ class StockAwareDataLoader:
         self.dataset = dataset
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.stocks = list(dataset.stock_groups.keys())
+        
+        # Filter out stocks with no data
+        self.stocks = [stock for stock in dataset.stock_groups.keys() 
+                      if len(dataset.stock_groups[stock]) > 0]
+        
+        if not self.stocks:
+            print("Warning: No stocks with data found in dataset")
+            self.stocks = []
+            
         self.current_stock_idx = 0
         self.epoch_finished = False
 
@@ -114,7 +121,7 @@ class StockAwareDataLoader:
         return self
 
     def __next__(self):
-        if self.epoch_finished:
+        if self.epoch_finished or not self.stocks:
             raise StopIteration
 
         # Try to get a batch from current stock
@@ -139,8 +146,9 @@ class StockAwareDataLoader:
                     )
 
                     return batch_x, batch_y
-                except ValueError:
-                    # This stock is exhausted, move to next
+                except ValueError as e:
+                    # This stock is exhausted or has issues, move to next
+                    print(f"Warning: Issue with stock {current_stock}: {e}")
                     pass
 
             # Move to next stock
